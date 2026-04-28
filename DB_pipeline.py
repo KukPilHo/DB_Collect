@@ -81,7 +81,6 @@ NAVER_CLIENT_ID     = os.getenv("NAVER_CLIENT_ID", "")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
 GOOGLE_CSE_API_KEY  = os.getenv("GOOGLE_CSE_API_KEY", "")
 GOOGLE_CSE_CX       = os.getenv("GOOGLE_CSE_CX", "")
-SERPAPI_KEY         = os.getenv("SERPAPI_KEY", "")
 
 SOURCE_URL_KICOX = "https://www.data.go.kr/data/15105482/fileData.do"
 SOURCE_URL_GG    = "https://www.data.go.kr/data/15057023/openapi.do"
@@ -92,15 +91,28 @@ USER_AGENT      = "Mozilla/5.0 (compatible; AblearnBD-Research/1.0)"
 
 EMAIL_REGEX = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 EMAIL_BLOCKLIST_DOMAINS = {
-    "example.com", "domain.com", "yourdomain.com", "test.com",
+    "example.com", "domain.com", "yourdomain.com", "test.com", "email.com",
     "sentry.io", "wixpress.com", "godo.co.kr", "cafe24.com",
-    "sentry-next.wixpress.com",
+    "sentry-next.wixpress.com", "saramin.co.kr", "happycampus.com",
+    "jobkorea.co.kr", "albamon.com", "incruit.com", "work.go.kr",
+    "kreditjob.com", "catch.co.kr", "114.co.kr"
 }
-EMAIL_BLOCKLIST_LOCAL = {"noreply", "no-reply", "donotreply", "do-not-reply"}
+EMAIL_BLOCKLIST_LOCAL = {"noreply", "no-reply", "donotreply", "do-not-reply", "example", "test", "email", "yourname", "yourid", "abc", "xxx"}
+
+URL_BLOCKLIST = [
+    "saramin.co.kr", "jobkorea.co.kr", "albamon.com", "incruit.com", "work.go.kr", 
+    "catch.co.kr", "happycampus.com", "114.co.kr", "bizno.net", "kreditjob.com",
+    "nicebizinfo.com", "rocketpunch.com", "wanted.co.kr", "jobplanet.co.kr"
+]
+
 SAVE_EVERY_N_ROWS = 200  # 주기적 체크포인트
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("factory_db")
+
+# 서드파티 라이브러리들의 불필요한 내부 로그(INFO) 숨기기
+for logger_name in ["ddgs", "duckduckgo_search", "urllib3", "httpx", "httpcore", "curl_cffi"]:
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 # ============================================================
@@ -376,21 +388,19 @@ def google_cse(query: str, num: int = 10) -> List[dict]:
         return []
 
 
-# --- SerpAPI ---
-def serpapi_search(query: str) -> List[dict]:
-    if not SERPAPI_KEY:
-        return []
+# --- DuckDuckGo Search (무료 대안) ---
+from ddgs import DDGS
+
+def duckduckgo_search(query: str, num: int = 5) -> List[dict]:
     try:
-        r = requests.get(
-            "https://serpapi.com/search",
-            params={"q": query, "api_key": SERPAPI_KEY, "engine": "google",
-                    "num": 10, "hl": "ko"},
-            timeout=TIMEOUT_SEC,
-        )
-        if r.status_code != 200:
-            return []
-        return r.json().get("organic_results", [])
-    except requests.RequestException:
+        with DDGS() as ddgs:
+            # DuckDuckGo 라이브러리는 max_results 개수만큼 결과를 반환
+            results = ddgs.text(query, max_results=num, region="kr-kr")
+            if not results:
+                return []
+            return [{"link": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")} for r in results]
+    except Exception as e:
+        log.debug("DuckDuckGo 검색 실패: %s", e)
         return []
 
 
@@ -480,33 +490,37 @@ def search_emails_for_company(name: str, address_hint: str = "") -> List[EmailHi
     candidates: List[Tuple[str, str, str]] = []  # (url, snippet, method)
 
     for q in queries:
+        tqdm.write(f"    - 🔍 [Naver 웹문서] 검색 중: '{q}'")
         for it in naver_search(q, "webkr", 10):
             url = it.get("link") or ""
             snip = (it.get("title", "") + " " + it.get("description", ""))
-            if url and url not in seen_urls:
+            if url and url not in seen_urls and not any(b in url for b in URL_BLOCKLIST):
                 seen_urls.add(url); candidates.append((url, snip, "naver_webkr"))
         time.sleep(0.3)
 
+        tqdm.write(f"    - 🔍 [Naver 지역정보] 검색 중: '{q}'")
         for it in naver_search(q, "local", 5):
             url = it.get("link") or ""
             snip = " ".join([it.get("title", ""), it.get("description", ""), it.get("address", "")])
-            if url and url not in seen_urls:
+            if url and url not in seen_urls and not any(b in url for b in URL_BLOCKLIST):
                 seen_urls.add(url); candidates.append((url, snip, "naver_local"))
         time.sleep(0.3)
 
+        tqdm.write(f"    - 🔍 [Google Custom Search] 검색 중: '{q}'")
         for it in google_cse(q, 10):
             url = it.get("link") or ""
             snip = (it.get("title", "") + " " + it.get("snippet", ""))
-            if url and url not in seen_urls:
+            if url and url not in seen_urls and not any(b in url for b in URL_BLOCKLIST):
                 seen_urls.add(url); candidates.append((url, snip, "google_cse"))
         time.sleep(0.3)
 
-        for it in serpapi_search(q):
+        tqdm.write(f"    - 🔍 [DuckDuckGo(무료)] 검색 중: '{q}'")
+        for it in duckduckgo_search(q, 5):
             url = it.get("link") or ""
             snip = (it.get("title", "") + " " + it.get("snippet", ""))
-            if url and url not in seen_urls:
-                seen_urls.add(url); candidates.append((url, snip, "serpapi"))
-        time.sleep(0.3)
+            if url and url not in seen_urls and not any(b in url for b in URL_BLOCKLIST):
+                seen_urls.add(url); candidates.append((url, snip, "duckduckgo"))
+        time.sleep(0.5)
 
     # 1) 검색결과 스니펫에서 직접 이메일 추출 (가장 빠른 hit)
     for url, snippet, method in candidates:
@@ -514,16 +528,24 @@ def search_emails_for_company(name: str, address_hint: str = "") -> List[EmailHi
             if em not in seen_emails:
                 seen_emails.add(em)
                 hits.append(EmailHit(email=em, source_url=url, method=f"{method}_snippet"))
+                tqdm.write(f"      => [스니펫 발견] {em} ({method})")
 
     # 2) 후보 URL 직접 방문 (상위 N개만 - 시간 절약)
-    for url, _, _ in candidates[:8]:
-        if any(url.lower().endswith(ext) for ext in (".pdf", ".jpg", ".png", ".gif", ".zip")):
-            continue
+    to_visit = [u for u, _, _ in candidates[:8] if not any(u.lower().endswith(ext) for ext in (".pdf", ".jpg", ".png", ".gif", ".zip"))]
+    if to_visit:
+        tqdm.write(f"    - 홈페이지 방문 탐색 진행: {len(to_visit)}개 URL 접속 중...")
+        
+    for url in to_visit:
         time.sleep(CRAWL_DELAY_SEC)
+        found_in_url = False
         for hit in scrape_emails_from_url(url):
             if hit.email not in seen_emails:
                 seen_emails.add(hit.email)
                 hits.append(hit)
+                found_in_url = True
+                tqdm.write(f"      => [홈페이지 발견] {hit.email} ({url})")
+        if found_in_url:
+            break # 한 URL에서 찾으면 다음 URL은 생략 (속도 우선)
 
     return [h for h in hits if h.is_valid()]
 
@@ -553,8 +575,16 @@ def cmd_enrich(args) -> None:
             out_rows = prev.to_dict(orient="records")
             log.info("재개: 기처리 %d행 스킵", len(processed_idx))
 
+    # 청크(Chunk) 분할 적용
+    start_i = args.start_idx if args.start_idx else 0
+    end_i = args.end_idx if args.end_idx else len(df)
+    
+    # args.limit이 있으면 end_i를 start_i + limit 으로 덮어씀 (호환성 유지)
     if args.limit:
-        df = df.head(args.limit).copy()
+        end_i = start_i + args.limit
+
+    df = df.iloc[start_i:end_i].copy()
+    log.info(f"작업 범위: 인덱스 {start_i} ~ {end_i-1} (총 {len(df)}행)")
 
     n_with_email = 0
     save_counter = 0
@@ -567,9 +597,12 @@ def cmd_enrich(args) -> None:
         base    = row.to_dict()
         base["_원본행번호"] = i
 
+        tqdm.write(f"\n[작업 중] 회사명: {company} (인덱스: {i})")
+
         if not company:
             out_rows.append({**base, "이메일": "", "이메일_출처_URL": "",
                              "이메일_방법": "", "이메일_조회시각": ""})
+            tqdm.write("    - 스킵: 회사명 없음")
         else:
             try:
                 hits = search_emails_for_company(company, addr)
@@ -613,6 +646,8 @@ def main() -> None:
     e = sub.add_parser("enrich", help="Phase 2: 이메일 크롤링 + 출처 URL 기록")
     e.add_argument("--sheet",  required=True, choices=["KICOX_전국", "경기도"])
     e.add_argument("--limit",  type=int, default=0, help="시험용 상위 N개만")
+    e.add_argument("--start-idx", type=int, default=0, help="시작할 행 인덱스 (0부터 시작)")
+    e.add_argument("--end-idx", type=int, default=0, help="끝날 행 인덱스")
     e.add_argument("--resume", action="store_true", help="중단 지점부터 재개")
     args = parser.parse_args()
     if args.cmd == "build_db":
