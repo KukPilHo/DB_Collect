@@ -1,16 +1,26 @@
 # 데이터 처리
-pandas
-openpyxl
+pandas>=2.0
+pyarrow>=14
+openpyxl>=3.1
+numpy>=1.24
 
 # 웹 크롤링 & API
-requests
-beautifulsoup4
-lxml
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=4.9
 
 # 유틸리티
-tqdm
-tenacity
+tqdm>=4.66
+tenacity>=8.2
 
-# 환경 변수(API 키) 관리
-python-dotenv
-ddgs
+# 환경 변수
+python-dotenv>=1.0
+
+# 검색
+ddgs>=4.0
+
+# CLI
+click>=8.1
+
+# 테스트
+pytest>=7.0

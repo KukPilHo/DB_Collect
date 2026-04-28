@@ -1,17 +1,33 @@
-# Environment variables
+# 환경변수
 .env
 
-# Python virtual environment
-venv/
+# 데이터 (gitignore)
+raw/
+normalized/
+master.parquet
+candidates.parquet
+enrichment_state.sqlite
+output/
+
+# 기존 레거시
+input/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
 
-# Data & Outputs
-input/
-output/
-*.csv
-*.xlsx
-*.xls
-
-# OS generated files
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
+
+# 테스트 캐시
+.pytest_cache/
