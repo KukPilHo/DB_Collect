@@ -8,6 +8,7 @@
 
 import time
 from typing import List, Set, Tuple
+from urllib.parse import urlparse
 
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -28,6 +29,7 @@ from .scraper import (
     extract_emails_from_text,
     scrape_emails_from_url,
 )
+from .ai_filter import is_valid_company_email
 
 
 # ── Naver Open API (webkr / local) ───────────────────────
@@ -98,9 +100,13 @@ def duckduckgo_search(query: str, num: int = 5) -> List[dict]:
 
 
 # ── 다중 소스 이메일 검색 ─────────────────────────────────
+INVALID_HOMEPAGES = {"http://", "http:// ", "https://", "http://www.", ""}
+
+
 def search_emails_for_company(
     name: str,
     address_hint: str = "",
+    homepage_url: str = "",
 ) -> List[EmailHit]:
     """
     다중 검색 소스로 후보 URL/스니펫 수집 → 페이지 본문에서 이메일 추출.
@@ -109,12 +115,27 @@ def search_emails_for_company(
     seen_emails: Set[str] = set()
     seen_urls: Set[str] = set()
 
+    # ── Phase 0: 홈페이지 직접 방문 (검색 전에 실행) ──────────
+    if homepage_url and homepage_url not in INVALID_HOMEPAGES:
+        tqdm.write(f"    - 🏠 [홈페이지 직접 방문] {homepage_url}")
+        seen_urls.add(homepage_url)
+        for hit in scrape_emails_from_url(homepage_url):
+            if hit.email not in seen_emails:
+                seen_emails.add(hit.email)
+                is_valid = is_valid_company_email(name, hit.email, f"Homepage: {homepage_url}")
+                mark = "" if is_valid else "[AI 필터링 걸림] "
+                hit.method = f"{mark}homepage_direct"
+                hits.append(hit)
+                tqdm.write(f"      => [홈페이지 발견] {hit.email} (homepage_direct) {mark}")
+        time.sleep(CRAWL_DELAY_SEC)
+
     # 검색 쿼리 생성
     queries = [
         f"{name} 이메일",
         f"{name} 문의",
         f"{name} 공식 홈페이지",
         f"{name} contact email",
+        f'"{name}" "@"',
     ]
     if address_hint:
         city = address_hint.split()[0] if address_hint.split() else ""
@@ -164,17 +185,34 @@ def search_emails_for_company(
                 candidates.append((url, snip, "duckduckgo"))
         time.sleep(0.5)
 
+    # ── site: 연산자 검색 (DuckDuckGo) ──────────────────────
+    if homepage_url and homepage_url not in INVALID_HOMEPAGES:
+        domain = urlparse(homepage_url).netloc.lstrip("www.")
+        if domain:
+            site_queries = [f"site:{domain} 이메일", f"site:{domain} contact"]
+            for sq in site_queries:
+                tqdm.write(f"    - 🔍 [DuckDuckGo site:] '{sq}'")
+                for it in duckduckgo_search(sq, 5):
+                    url = it.get("link") or ""
+                    snip = (it.get("title", "") + " " + it.get("snippet", ""))
+                    if url and url not in seen_urls and not any(b in url for b in URL_BLOCKLIST):
+                        seen_urls.add(url)
+                        candidates.append((url, snip, "duckduckgo_site"))
+                time.sleep(0.5)
+
     # 1) 검색결과 스니펫에서 직접 이메일 추출 (가장 빠른 hit)
     for url, snippet, method in candidates:
         for em in extract_emails_from_text(snippet):
             if em not in seen_emails:
                 seen_emails.add(em)
-                hits.append(EmailHit(email=em, source_url=url, method=f"{method}_snippet"))
-                tqdm.write(f"      => [스니펫 발견] {em} ({method})")
+                is_valid = is_valid_company_email(name, em, snippet)
+                mark = "" if is_valid else "[AI 필터링 걸림] "
+                hits.append(EmailHit(email=em, source_url=url, method=f"{mark}{method}_snippet"))
+                tqdm.write(f"      => [스니펫 발견] {em} ({method}) {mark}")
 
-    # 2) 후보 URL 직접 방문 (상위 8개만)
+    # 2) 후보 URL 직접 방문 (상위 12개)
     to_visit = [
-        u for u, _, _ in candidates[:8]
+        u for u, _, _ in candidates[:12]
         if not any(u.lower().endswith(ext) for ext in (".pdf", ".jpg", ".png", ".gif", ".zip"))
     ]
     if to_visit:
@@ -186,10 +224,15 @@ def search_emails_for_company(
         for hit in scrape_emails_from_url(url):
             if hit.email not in seen_emails:
                 seen_emails.add(hit.email)
+                # 홈페이지에서 발견한 경우, 홈페이지의 title이나 주요 문맥이 스니펫이 될 수 없으므로 url을 스니펫으로 전달
+                is_valid = is_valid_company_email(name, hit.email, f"Source URL: {url}")
+                mark = "" if is_valid else "[AI 필터링 걸림] "
+                hit.method = f"{mark}{hit.method}"
                 hits.append(hit)
                 found_in_url = True
-                tqdm.write(f"      => [홈페이지 발견] {hit.email} ({url})")
-        if found_in_url:
-            break  # 한 URL에서 찾으면 다음 URL 생략 (속도 우선)
+                tqdm.write(f"      => [홈페이지 발견] {hit.email} ({url}) {mark}")
+        if len(seen_emails) >= 5:
+            tqdm.write(f"      => 이메일 {len(seen_emails)}개 수집 완료, URL 방문 중단")
+            break
 
     return [h for h in hits if h.is_valid()]

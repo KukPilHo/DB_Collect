@@ -32,8 +32,10 @@ def _process_one(row: pd.Series, state: EnrichmentState) -> str:
         state.upsert(회사키, 회사명, 상태=STATUS_SKIPPED, 에러메시지="회사명 없음")
         return STATUS_SKIPPED
 
+    홈페이지 = str(row.get("홈페이지", "") or "").strip()
+
     try:
-        hits = search_emails_for_company(회사명, 주소)
+        hits = search_emails_for_company(회사명, 주소, homepage_url=홈페이지)
     except Exception as e:
         state.upsert(회사키, 회사명, 상태=STATUS_FAILED, 에러메시지=str(e))
         return STATUS_FAILED

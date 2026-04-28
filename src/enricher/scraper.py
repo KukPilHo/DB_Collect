@@ -29,12 +29,16 @@ EMAIL_BLOCKLIST_DOMAINS = {
     "sentry.io", "wixpress.com", "godo.co.kr", "cafe24.com",
     "sentry-next.wixpress.com", "saramin.co.kr", "happycampus.com",
     "jobkorea.co.kr", "albamon.com", "incruit.com", "work.go.kr",
-    "kreditjob.com", "catch.co.kr", "114.co.kr",
+    "kreditjob.com", "catch.co.kr", "114.co.kr", "kakaopage.com",
+    "kakao.com", "kakaocorp.com", "tiktok.com", "instagram.com",
+    "facebook.com", "youtube.com", "twitter.com", "x.com",
+    "korea.kr", "go.kr", "or.kr", "fnnews.com", "yna.co.kr", "ikld.kr", "keris.or.kr",
 }
 
 EMAIL_BLOCKLIST_LOCAL = {
     "noreply", "no-reply", "donotreply", "do-not-reply",
     "example", "test", "email", "yourname", "yourid", "abc", "xxx",
+    "privacy", "personal", "admin", "webmaster", "master",
 }
 
 URL_BLOCKLIST = [
@@ -42,6 +46,8 @@ URL_BLOCKLIST = [
     "work.go.kr", "catch.co.kr", "happycampus.com", "114.co.kr",
     "bizno.net", "kreditjob.com", "nicebizinfo.com", "rocketpunch.com",
     "wanted.co.kr", "jobplanet.co.kr",
+    "tiktok.com", "instagram.com", "facebook.com", "youtube.com", "twitter.com", "x.com",
+    "fnnews.com", "yna.co.kr", "ikld.kr", "korea.kr", "go.kr", "keris.or.kr"
 ]
 
 
@@ -67,6 +73,8 @@ class EmailHit:
         if domain.endswith((".png", ".jpg", ".gif", ".pdf", ".zip", ".webp")):
             return False
         if len(em) > 80 or len(local) < 1:
+            return False
+        if local.startswith((".", "-", "_", "%", "+")) or local.endswith((".", "-", "_", "%", "+")):
             return False
         return True
 
@@ -105,6 +113,8 @@ def extract_emails_from_text(text: str) -> Set[str]:
             continue
         if "@2x" in em or "@3x" in em:  # 이미지 retina 표기
             continue
+        if local.startswith((".", "-", "_", "%", "+")) or local.endswith((".", "-", "_", "%", "+")):
+            continue
         out.add(em)
     return out
 
@@ -121,8 +131,13 @@ def find_contact_pages(soup: BeautifulSoup, base_url: str) -> List[str]:
     base_host = urlparse(base_url).netloc
 
     for a in soup.find_all("a", href=True):
-        href = a["href"]
+        href = a.get("href", "")
         txt = (a.get_text() or "").lower()
+        
+        # 개인정보처리방침 등 필터링
+        if any(bad in href.lower() for bad in ("privacy", "personal", "policy", "term")):
+            continue
+            
         if any(k in href.lower() or k in txt for k in keywords):
             full = urljoin(base_url, href)
             if urlparse(full).netloc == base_host and full not in seen:

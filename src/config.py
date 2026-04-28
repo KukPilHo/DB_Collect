@@ -37,11 +37,15 @@ NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
 GOOGLE_CSE_API_KEY = os.getenv("GOOGLE_CSE_API_KEY", "")
 GOOGLE_CSE_CX = os.getenv("GOOGLE_CSE_CX", "")
 
-# ── 크롤링 설정 ──────────────────────────────────────────
+# ── 크롤링 및 AI 설정 ────────────────────────────────────
 CRAWL_DELAY_SEC = 1.5
 TIMEOUT_SEC = 12
 USER_AGENT = os.getenv("USER_AGENT", "AblearnBD-Research/1.0")
 ENRICHMENT_CONCURRENCY = int(os.getenv("ENRICHMENT_CONCURRENCY", "5"))
+
+# AI 이메일 검증
+USE_AI_FILTER = os.getenv("USE_AI_FILTER", "False").lower() in ("true", "1", "yes", "on")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # ── 카테고리 정의 ─────────────────────────────────────────
 CATEGORY_제조 = "제조"
@@ -83,11 +87,8 @@ UNIFIED_COLUMNS = [
 
 # ── 로깅 설정 ─────────────────────────────────────────────
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger("outbound_db")
-
-# 서드파티 라이브러리 로그 레벨 제한
-for _name in ("ddgs", "duckduckgo_search", "urllib3", "httpx", "httpcore", "curl_cffi"):
-    logging.getLogger(_name).setLevel(logging.WARNING)
+log.setLevel(logging.INFO)

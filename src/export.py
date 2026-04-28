@@ -72,10 +72,9 @@ def run_export() -> str:
 
     # 출력 컬럼 선택
     out_cols = [
-        "회사명", "사업자등록번호", "대표자", "업종명_원본",
-        "시도", "시군구", "도로명주소", "대표전화", "홈페이지",
-        "종업원수", "자본금", "카테고리", "출처_데이터셋ID",
-        "이메일", "이메일_출처_URL", "이메일_방법",
+        "회사명", "이메일", "이메일_출처_URL", "이메일_방법",
+        "업종명_원본", "시도", "시군구", "도로명주소", "대표전화", "홈페이지",
+        "종업원수", "자본금", "카테고리", "출처_데이터셋ID"
     ]
     out_cols = [c for c in out_cols if c in merged.columns]
 
@@ -88,6 +87,12 @@ def run_export() -> str:
 
         for cat in categories:
             cat_df = merged[merged["카테고리"] == cat][out_cols].copy() if not merged.empty else pd.DataFrame(columns=out_cols)
+            if not cat_df.empty:
+                # 회사명 기준으로 고유 번호(dense rank) 부여
+                cat_df.insert(0, "No.", pd.factorize(cat_df["회사명"])[0] + 1)
+            else:
+                cat_df.insert(0, "No.", [])
+                
             sheet_name = cat[:31]  # 엑셀 시트명 31자 제한
             cat_df.to_excel(writer, sheet_name=sheet_name, index=False)
             ws = writer.book[sheet_name]
@@ -106,11 +111,14 @@ def run_export() -> str:
 
         # 통합 시트
         if not merged.empty:
-            merged[out_cols].to_excel(writer, sheet_name="통합", index=False)
+            merged_out = merged[out_cols].copy()
+            merged_out.insert(0, "No.", pd.factorize(merged_out["회사명"])[0] + 1)
+            merged_out.to_excel(writer, sheet_name="통합", index=False)
             ws = writer.book["통합"]
-            _style_sheet(ws, merged[out_cols])
+            _style_sheet(ws, merged_out)
         else:
-            pd.DataFrame(columns=out_cols).to_excel(writer, sheet_name="통합", index=False)
+            empty_df = pd.DataFrame(columns=["No."] + out_cols)
+            empty_df.to_excel(writer, sheet_name="통합", index=False)
 
         # summary 시트
         summary_df = pd.DataFrame(summary_data)
