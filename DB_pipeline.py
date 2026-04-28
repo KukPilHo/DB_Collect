@@ -122,7 +122,7 @@ def load_kicox() -> pd.DataFrame:
         try:
             df = pd.read_csv(path, dtype=str, encoding="utf-8").fillna("")
         except UnicodeDecodeError:
-            df = pd.read_csv(path, dtype=str, encoding="euc-kr").fillna("")
+            df = pd.read_csv(path, dtype=str, encoding="cp949", encoding_errors="replace").fillna("")
     else:
         df = pd.read_excel(path, dtype=str).fillna("")
 
@@ -191,6 +191,30 @@ def _gg_call(page: int, per_page: int) -> dict:
 
 
 def load_gyeonggi() -> pd.DataFrame:
+    # 1. 로컬에 저장된 엑셀 파일이 있으면 우선 로드 (시간 절약)
+    local_path = INPUT_DIR / "경기도_공장등록현황.xlsx"
+    if local_path.exists():
+        log.info(f"로컬 파일 발견, API 대신 캐시 로드: {local_path}")
+        df = pd.read_excel(local_path, dtype=str).fillna("")
+        # 컬럼 매핑 (API 원본 컬럼명 -> 통일된 컬럼명)
+        col_map = {}
+        for c in df.columns:
+            cs = c.strip()
+            if cs in ("CMPNY_NM", "COMPNY_GRP_NM", "업체명", "회사명", "기업체명"):     col_map[c] = "업체명"
+            elif "주소" in cs or "ADDR" in cs.upper():                col_map[c] = "공장주소"
+            elif "연락" in cs or "TEL" in cs.upper() or "PHONE" in cs.upper(): col_map[c] = "대표연락처"
+            elif "생산" in cs or "PROD" in cs.upper() or "PRDT" in cs.upper(): col_map[c] = "주요생산품"
+            elif "업종" in cs or "INDU" in cs.upper():              col_map[c] = "업종명"
+        df = df.rename(columns=col_map)
+        
+        expected = [c for c in ["업체명", "공장주소", "대표연락처", "주요생산품", "업종명"] if c in df.columns]
+        df = df[expected].copy() if expected else df
+        df["출처_데이터셋"] = "경기도_공장등록 현황(15057023)"
+        df["출처_URL"]      = SOURCE_URL_GG
+        log.info("경기도 행 수: %d", len(df))
+        return df
+
+    # 2. 로컬 파일이 없으면 API 호출
     if not (DATA_GO_KR_KEY and GG_API_URL):
         log.warning("경기도 API 키 미설정 -> 빈 시트로 출력")
         return pd.DataFrame(columns=[
