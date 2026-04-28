@@ -1,0 +1,17 @@
+# Environment variables
+.env
+
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Data & Outputs
+input/
+output/
+*.csv
+*.xlsx
+*.xls
+
+# OS generated files
+.DS_Store

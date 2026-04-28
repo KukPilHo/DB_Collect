@@ -1,0 +1,15 @@
+# 데이터 처리 및 엑셀 입출력
+pandas
+openpyxl
+
+# API 호출 및 웹 스크래핑
+requests
+beautifulsoup4
+lxml
+
+# 진행 상태 표시 및 재시도 로직
+tqdm
+tenacity
+
+# 환경 변수(API 키) 관리
+python-dotenv
