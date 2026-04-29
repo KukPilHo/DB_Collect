@@ -26,14 +26,30 @@ EMAIL_REGEX = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 # ── 블랙리스트 ────────────────────────────────────────────
 EMAIL_BLOCKLIST_DOMAINS = {
     "example.com", "domain.com", "yourdomain.com", "test.com", "email.com",
+    "company.com",
     "sentry.io", "wixpress.com", "godo.co.kr", "cafe24.com",
-    "sentry-next.wixpress.com", "saramin.co.kr", "happycampus.com",
+    "saramin.co.kr", "happycampus.com",
     "jobkorea.co.kr", "albamon.com", "incruit.com", "work.go.kr",
     "kreditjob.com", "catch.co.kr", "114.co.kr", "kakaopage.com",
     "kakao.com", "kakaocorp.com", "tiktok.com", "instagram.com",
     "facebook.com", "youtube.com", "twitter.com", "x.com",
     "korea.kr", "go.kr", "or.kr", "fnnews.com", "yna.co.kr", "ikld.kr", "keris.or.kr",
+    # 디렉토리/플랫폼 이메일 도메인
+    "sankun.com", "marketbz.com", "itdonga.com", "carestore.co.kr",
+    "rndcircle.io", "goodsoftware.co.kr", "teamblind.com", "daangn.com",
 }
+
+
+def _is_blocked_domain(domain: str) -> bool:
+    """도메인이 블랙리스트에 포함되는지 확인 (서브도메인 포함)."""
+    if domain in EMAIL_BLOCKLIST_DOMAINS:
+        return True
+    # 서브도메인 매칭: sentry.wixpress.com → wixpress.com
+    for blocked in EMAIL_BLOCKLIST_DOMAINS:
+        if domain.endswith("." + blocked):
+            return True
+    return False
+
 
 EMAIL_BLOCKLIST_LOCAL = {
     "noreply", "no-reply", "donotreply", "do-not-reply",
@@ -42,12 +58,21 @@ EMAIL_BLOCKLIST_LOCAL = {
 }
 
 URL_BLOCKLIST = [
+    # 취업/구인 사이트
     "saramin.co.kr", "jobkorea.co.kr", "albamon.com", "incruit.com",
     "work.go.kr", "catch.co.kr", "happycampus.com", "114.co.kr",
     "bizno.net", "kreditjob.com", "nicebizinfo.com", "rocketpunch.com",
     "wanted.co.kr", "jobplanet.co.kr",
+    # SNS
     "tiktok.com", "instagram.com", "facebook.com", "youtube.com", "twitter.com", "x.com",
-    "fnnews.com", "yna.co.kr", "ikld.kr", "korea.kr", "go.kr", "keris.or.kr"
+    # 뉴스
+    "fnnews.com", "yna.co.kr", "ikld.kr", "korea.kr", "go.kr", "keris.or.kr",
+    # 디렉토리/플랫폼 (노이즈 다량 발생)
+    "sankun.com", "marketbz.com", "g2bmarket.com", "ksaco.kr",
+    "sw.or.kr", "spo.go.kr", "factory.kjuso.kr", "myfactory.co.kr",
+    "eep.energy.or.kr", "nursing.snu.ac.kr", "linkonbiz.com",
+    "ourtoday.co.kr", "daont.co.kr", "babechat.ai", "m.frangfrang.com",
+    "rome2rio.com", "goodsoftware.co.kr",
 ]
 
 
@@ -66,7 +91,7 @@ class EmailHit:
         local, _, domain = em.partition("@")
         if not domain or "." not in domain:
             return False
-        if domain in EMAIL_BLOCKLIST_DOMAINS:
+        if _is_blocked_domain(domain):
             return False
         if local in EMAIL_BLOCKLIST_LOCAL:
             return False
@@ -105,7 +130,7 @@ def extract_emails_from_text(text: str) -> Set[str]:
         local, _, domain = em.lower().partition("@")
         if not domain or "." not in domain:
             continue
-        if domain in EMAIL_BLOCKLIST_DOMAINS:
+        if _is_blocked_domain(domain):
             continue
         if local in EMAIL_BLOCKLIST_LOCAL:
             continue
