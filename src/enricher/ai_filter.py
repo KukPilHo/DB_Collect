@@ -34,15 +34,17 @@ _NOISE_SOURCE_DOMAINS = {
     "inven.co.kr", "ruliweb.com",
     "rome2rio.com", "play.google.com",
     "prezi.com", "namu.wiki", "urlquery.net",
+    # 제3자 디렉토리/리뷰/중고거래 사이트
+    "sankun.com", "marketbz.com", "g2bmarket.com",
+    "daangn.com", "companymarket.co.kr", "biztop.co.kr",
+    "happyhaksul.com", "devicemart.co.kr", "changeok.co.kr",
+    "worker.co.kr", "celtic.co.kr", "sportsseoul.com",
+    "msn.com", "namsieon.com", "composecoffee.com",
 }
 
 # naver.com / gmail.com 등 프리 메일은 AI 판별 대신 바로 통과시키되
 # 출처가 노이즈 사이트가 아닌 경우에만
-_FREE_MAIL_DOMAINS = {
-    "naver.com", "gmail.com", "hanmail.net", "daum.net",
-    "nate.com", "hotmail.com", "outlook.com", "outlook.kr",
-    "yahoo.com", "yahoo.co.kr",
-}
+from .scraper import FREE_MAIL_DOMAINS as _FREE_MAIL_DOMAINS
 
 
 def _extract_source_domain(snippet: str) -> str:
@@ -83,9 +85,14 @@ def _rule_based_filter(company_name: str, email: str, snippet: str) -> Optional[
     if email_domain in _FREE_MAIL_DOMAINS:
         return None  # AI 판별
 
-    # 3) 이메일 도메인 = 출처 URL 도메인 → 해당 사이트 자체 이메일이므로 유효
-    if email_domain and source_domain and email_domain == source_domain:
-        return True
+    # 3) 이메일 도메인과 출처 URL 도메인이 부분적으로라도 일치하면 유효 (예: .com vs .co.kr)
+    if email_domain and source_domain:
+        if email_domain in source_domain or source_domain in email_domain:
+            return True
+        email_base = email_domain.replace("co.kr", "").replace("com", "").replace("net", "").replace("kr", "").strip(".")
+        source_base = source_domain.replace("co.kr", "").replace("com", "").replace("net", "").replace("kr", "").strip(".")
+        if email_base and source_base and (email_base in source_base or source_base in email_base):
+            return True
 
     return None  # AI 판별 필요
 
@@ -109,17 +116,18 @@ def is_valid_company_email(company_name: str, email: str, snippet: str) -> bool:
         return True
 
     prompt = f"""You are a B2B email validator. Determine if this email belongs to or is a valid contact for the target company.
+Do NOT be overly strict. If the email domain looks like an acronym or English spelling of the Korean company name, it is HIGHLY LIKELY to be valid.
 
 TRUE if:
-- Email domain matches or is related to the company
-- Email is a business contact (info@, sales@, cs@, contact@, or personal name) found on a relevant page
-- Email belongs to an employee of the target company
+- Email domain conceptually matches the company name (e.g., English spelling, acronym, abbreviation).
+- Email domain matches or is closely related to the company.
+- Email is a business contact (info@, sales@, etc.) found on a relevant page.
 
 FALSE if:
-- Email belongs to a news site, reporter, or media outlet
-- Email belongs to a completely different/unrelated company
-- Email is a generic platform email (e.g., support@sentry.io, ads@teamblind.com)
-- Email is clearly spam or a placeholder
+- Email belongs to a news site, reporter, university, or media outlet.
+- Email belongs to a completely different/unrelated company.
+- Email is a generic platform email (e.g., support@sentry.io, ads@teamblind.com).
+- Email is clearly spam or a placeholder.
 
 Company: {company_name}
 Email: {email}
@@ -131,7 +139,7 @@ Answer TRUE or FALSE only:"""
         response = client.chat.completions.create(
             model="gpt-5.4-nano",
             messages=[
-                {"role": "system", "content": "You are a strict data validation assistant. Answer only TRUE or FALSE."},
+                {"role": "system", "content": "You are a helpful data validation assistant. Answer only TRUE or FALSE. Be lenient if the email domain seems to be an acronym or english name of the company."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,

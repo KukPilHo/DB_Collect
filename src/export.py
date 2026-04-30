@@ -2,7 +2,7 @@
 엑셀 엑스포트
 ==============
 enrichment_state JOIN master → output/outbound_db_<날짜>.xlsx
-시트 6개: 카테고리 4시트 + 통합 + summary
+시트 구성: 카테고리 4시트(best-pick) + 통합(best-pick) + 상세(전체 이메일) + summary
 그레이스케일 스타일링 (기존 save_db_excel 이식).
 """
 
@@ -17,6 +17,7 @@ from src.config import (
     OUTPUT_DIR,
     log,
 )
+from src.enricher.best_pick import select_best_picks
 from src.enricher.state import EnrichmentState, STATUS_COLLECTED
 
 
@@ -57,18 +58,28 @@ def run_export() -> str:
         log.warning("enrichment_state에 데이터 없음. 빈 엑셀 생성.")
         email_df = pd.DataFrame(columns=["회사키", "이메일", "이메일_출처_URL", "이메일_방법", "상태"])
 
-    # master와 JOIN
+    # ── Best-Pick 선택 (회사당 최대 2건) ──────────────────────
+    best_picks = select_best_picks(emails, max_picks=2)
+    best_pick_df = pd.DataFrame(best_picks) if best_picks else pd.DataFrame(
+        columns=["회사키", "이메일", "이메일_출처_URL", "이메일_방법", "상태", "best_pick_점수", "best_pick_순위"]
+    )
+
+    # ── 전체 collected 이메일 (상세 시트용) ────────────────────
     if not email_df.empty:
-        # collected인 행만 (이메일 있는 것)
-        collected = email_df[email_df["상태"] == STATUS_COLLECTED].copy()
-        if not collected.empty:
-            # 중복 회사명 컬럼 제거 후 JOIN
-            collected = collected.drop(columns=["회사명"], errors="ignore")
-            merged = master.merge(collected, on="회사키", how="inner")
-        else:
-            merged = master.head(0)  # 빈 DataFrame
+        all_collected = email_df[email_df["상태"] == STATUS_COLLECTED].copy()
     else:
-        merged = master.head(0)
+        all_collected = pd.DataFrame(columns=["회사키", "이메일", "이메일_출처_URL", "이메일_방법", "상태"])
+
+    # ── master와 JOIN ─────────────────────────────────────────
+    def _merge_with_master(email_subset: pd.DataFrame) -> pd.DataFrame:
+        """email subset을 master와 조인."""
+        if email_subset.empty:
+            return master.head(0)
+        joined = email_subset.drop(columns=["회사명"], errors="ignore")
+        return master.merge(joined, on="회사키", how="inner")
+
+    merged_best = _merge_with_master(best_pick_df)
+    merged_all = _merge_with_master(all_collected)
 
     # 출력 컬럼 선택
     out_cols = [
@@ -76,17 +87,25 @@ def run_export() -> str:
         "업종명_원본", "시도", "시군구", "도로명주소", "대표전화", "홈페이지",
         "종업원수", "자본금", "카테고리", "출처_데이터셋ID"
     ]
-    out_cols = [c for c in out_cols if c in merged.columns]
+    out_cols = [c for c in out_cols if c in merged_best.columns]
+
+    # 상세 시트 컬럼 (best_pick 점수 포함)
+    detail_cols = out_cols.copy()
+    if "best_pick_점수" in merged_best.columns:
+        detail_extra = ["best_pick_점수", "best_pick_순위"]
+        detail_extra = [c for c in detail_extra if c in merged_best.columns]
+    else:
+        detail_extra = []
 
     out_path = OUTPUT_DIR / f"outbound_db_{date.today().isoformat()}.xlsx"
 
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-        # 카테고리별 시트
+        # ── 카테고리별 시트 (Best-Pick만) ─────────────────────
         categories = list(CATEGORY_QUOTA.keys())
         summary_data = []
 
         for cat in categories:
-            cat_df = merged[merged["카테고리"] == cat][out_cols].copy() if not merged.empty else pd.DataFrame(columns=out_cols)
+            cat_df = merged_best[merged_best["카테고리"] == cat][out_cols].copy() if not merged_best.empty else pd.DataFrame(columns=out_cols)
             if not cat_df.empty:
                 # 회사명 기준으로 고유 번호(dense rank) 부여
                 cat_df.insert(0, "No.", pd.factorize(cat_df["회사명"])[0] + 1)
@@ -100,18 +119,18 @@ def run_export() -> str:
 
             # summary 데이터
             quota = CATEGORY_QUOTA.get(cat, 0)
-            actual = len(cat_df.drop_duplicates(subset=["회사키"])) if "회사키" in cat_df.columns else len(cat_df)
+            unique_companies = cat_df["회사명"].nunique() if not cat_df.empty else 0
             summary_data.append({
                 "카테고리": cat,
                 "목표(quota)": quota,
-                "실제 행수": len(cat_df),
-                "고유 회사 수": actual,
-                "미달/초과": actual - quota,
+                "Best-Pick 행수": len(cat_df),
+                "고유 회사 수": unique_companies,
+                "미달/초과": unique_companies - quota,
             })
 
-        # 통합 시트
-        if not merged.empty:
-            merged_out = merged[out_cols].copy()
+        # ── 통합 시트 (Best-Pick) ─────────────────────────────
+        if not merged_best.empty:
+            merged_out = merged_best[out_cols].copy()
             merged_out.insert(0, "No.", pd.factorize(merged_out["회사명"])[0] + 1)
             merged_out.to_excel(writer, sheet_name="통합", index=False)
             ws = writer.book["통합"]
@@ -120,7 +139,19 @@ def run_export() -> str:
             empty_df = pd.DataFrame(columns=["No."] + out_cols)
             empty_df.to_excel(writer, sheet_name="통합", index=False)
 
-        # summary 시트
+        # ── 상세 시트 (전체 collected 이메일) ─────────────────
+        all_out_cols = [c for c in out_cols if c in merged_all.columns]
+        if not merged_all.empty:
+            detail_df = merged_all[all_out_cols].copy()
+            detail_df.insert(0, "No.", pd.factorize(detail_df["회사명"])[0] + 1)
+            detail_df.to_excel(writer, sheet_name="상세_전체이메일", index=False)
+            ws = writer.book["상세_전체이메일"]
+            _style_sheet(ws, detail_df)
+        else:
+            empty_detail = pd.DataFrame(columns=["No."] + all_out_cols)
+            empty_detail.to_excel(writer, sheet_name="상세_전체이메일", index=False)
+
+        # ── summary 시트 ──────────────────────────────────────
         summary_df = pd.DataFrame(summary_data)
 
         # hit rate 계산
@@ -136,11 +167,21 @@ def run_export() -> str:
             "이메일 발견": collected_count,
             "hit rate (%)": f"{hit_rate:.1f}",
         }])
-        summary_df = pd.concat([summary_df, pd.DataFrame([{}]), hit_info], ignore_index=True)
+
+        best_pick_info = pd.DataFrame([{
+            "Best-Pick 총 행수": len(best_pick_df),
+            "Best-Pick 고유 회사 수": best_pick_df["회사키"].nunique() if not best_pick_df.empty else 0,
+            "전체 이메일 행수": len(all_collected),
+        }])
+
+        summary_df = pd.concat([summary_df, pd.DataFrame([{}]), hit_info, pd.DataFrame([{}]), best_pick_info], ignore_index=True)
 
         summary_df.to_excel(writer, sheet_name="summary", index=False)
         ws = writer.book["summary"]
         _style_sheet(ws, summary_df)
 
     log.info("엑셀 저장 완료: %s", out_path)
+    log.info("  Best-Pick: %d행 (%d개 회사)", len(best_pick_df),
+             best_pick_df["회사키"].nunique() if not best_pick_df.empty else 0)
+    log.info("  상세(전체): %d행", len(all_collected))
     return str(out_path)

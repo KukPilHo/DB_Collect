@@ -33,15 +33,37 @@ EMAIL_BLOCKLIST_DOMAINS = {
     "kreditjob.com", "catch.co.kr", "114.co.kr", "kakaopage.com",
     "kakao.com", "kakaocorp.com", "tiktok.com", "instagram.com",
     "facebook.com", "youtube.com", "twitter.com", "x.com",
-    "korea.kr", "go.kr", "or.kr", "fnnews.com", "yna.co.kr", "ikld.kr", "keris.or.kr",
+    "korea.kr", "go.kr", "fnnews.com", "yna.co.kr", "ikld.kr", "keris.or.kr",
     # 디렉토리/플랫폼 이메일 도메인
     "sankun.com", "marketbz.com", "itdonga.com", "carestore.co.kr",
     "rndcircle.io", "goodsoftware.co.kr", "teamblind.com", "daangn.com",
+    # 뉴스/미디어/커뮤니티 도메인
+    "inven.co.kr", "dkpia.com", "lab-t.net", "ntrex.co.kr",
+    "esgroup.net", "theinvest.co.kr", "investnews.co.kr", "dable.io",
+    "companymarket.co.kr", "happyhaksul.com", "biztop.co.kr",
+    "composecoffee.co.kr", "sportsseoul.com", "koit.co.kr",
+    "hanbat.ac.kr", "skuniv.ac.kr", "sejungilbo.com", "aitimes.kr",
+    "smartcity.or.kr", "daangnservice.com", "urlquery.net",
+    # 실행 중 추가 발견 (뉴스/무관 플랫폼)
+    "boannews.com", "apple-economy.com", "irobotnews.com", "etnews.com",
+    "ablenews.co.kr", "theindigo.co.kr", "fpn119.co.kr", "newstown.co.kr",
+    "cosinkorea.com", "techsuda.com", "zdnet.co.kr", "ruliweb.com",
+    "op.gg", "blog.yeogie.com", "radiokorea.com", "surfshark.com", "surfsharkbiz.com", "surfsharkpress.com",
 }
 
 
 def _is_blocked_domain(domain: str) -> bool:
     """도메인이 블랙리스트에 포함되는지 확인 (서브도메인 포함)."""
+    # 1. 아카데믹/공공 도메인 차단 (공장/기업 DB 타겟에서 불필요)
+    if domain.endswith(".ac.kr") or domain.endswith(".edu"):
+        return True
+        
+    # 2. 뉴스/미디어 의심 도메인 (광범위하게 차단)
+    news_keywords = ["news", "press", "daily", "times", "journal", "today"]
+    if any(k in domain for k in news_keywords):
+        return True
+
+    # 3. 명시적 블랙리스트 확인
     if domain in EMAIL_BLOCKLIST_DOMAINS:
         return True
     # 서브도메인 매칭: sentry.wixpress.com → wixpress.com
@@ -65,14 +87,29 @@ URL_BLOCKLIST = [
     "wanted.co.kr", "jobplanet.co.kr",
     # SNS
     "tiktok.com", "instagram.com", "facebook.com", "youtube.com", "twitter.com", "x.com",
-    # 뉴스
+    # 뉴스/미디어
     "fnnews.com", "yna.co.kr", "ikld.kr", "korea.kr", "go.kr", "keris.or.kr",
+    "inven.co.kr", "sejungilbo.com", "aitimes.kr", "hellodd.com",
+    "sportsseoul.com", "koit.co.kr", "msn.com", "namsieon.com",
     # 디렉토리/플랫폼 (노이즈 다량 발생)
     "sankun.com", "marketbz.com", "g2bmarket.com", "ksaco.kr",
     "sw.or.kr", "spo.go.kr", "factory.kjuso.kr", "myfactory.co.kr",
     "eep.energy.or.kr", "nursing.snu.ac.kr", "linkonbiz.com",
     "ourtoday.co.kr", "daont.co.kr", "babechat.ai", "m.frangfrang.com",
     "rome2rio.com", "goodsoftware.co.kr",
+    # 제3자 디렉토리/리뷰/중고거래 사이트
+    "devicemart.co.kr", "namu.wiki", "play.google.com", "prezi.com",
+    "changeok.co.kr", "worker.co.kr", "celtic.co.kr", "biztop.co.kr",
+    "happyhaksul.com", "companymarket.co.kr", "haesola.com",
+    "composecoffee.com", "smartcitysolutionmarket.com",
+    "app.rndcircle.io", "ubique.co.kr", "oncore.co.kr", "roadmine.com",
+    "daangn.com", "hanbat.ac.kr", "skuniv.ac.kr",
+    # 뉴스/미디어 추가 (실행 중 발견)
+    "boannews.com", "apple-economy.com", "irobotnews.com", "etnews.com",
+    "ablenews.co.kr", "theindigo.co.kr", "fpn119.co.kr", "newstown.co.kr",
+    "cosinkorea.com", "techsuda.com", "zdnet.co.kr", "ruliweb.com",
+    # 무관 플랫폼
+    "op.gg", "blog.yeogie.com", "radiokorea.com", "surfshark.com",
 ]
 
 
@@ -104,9 +141,61 @@ class EmailHit:
         return True
 
 
+# ── 프리메일 도메인 ────────────────────────────────────────
+FREE_MAIL_DOMAINS = {
+    "naver.com", "gmail.com", "hanmail.net", "daum.net",
+    "nate.com", "hotmail.com", "outlook.com", "outlook.kr",
+    "yahoo.com", "yahoo.co.kr",
+}
+
+
 def _clean_email(em: str) -> str:
     """이메일 문자열 정리."""
     return em.strip().rstrip(".,;:'\"")
+
+
+def is_cross_domain_noise(email: str, source_url: str) -> bool:
+    """
+    출처 URL 도메인과 이메일 도메인이 무관한 제3자 이메일인지 판별.
+    프리메일(naver, gmail 등)은 제외하고, 기업 도메인 이메일만 체크.
+    True = 노이즈(차단 대상), False = 통과.
+    """
+    email_lower = email.lower()
+    _, _, email_domain = email_lower.partition("@")
+    if not email_domain:
+        return False
+
+    # 프리메일은 cross-domain 체크 건너뜀 (회사 담당자가 프리메일 쓸 수 있음)
+    if email_domain in FREE_MAIL_DOMAINS:
+        return False
+
+    # 출처 URL 도메인 추출
+    source_host = urlparse(source_url).netloc.lower().replace("www.", "")
+    if not source_host:
+        return False
+
+    # 블로그/포털은 cross-domain 체크 건너뜀 (블로그에 자기 이메일 올리는 경우)
+    blog_hosts = {
+        "blog.naver.com", "m.blog.naver.com", "tistory.com",
+        "brunch.co.kr", "medium.com", "velog.io",
+        "linkedin.com", "kr.linkedin.com",
+    }
+    for bh in blog_hosts:
+        if source_host == bh or source_host.endswith("." + bh):
+            return False
+
+    # 이메일 도메인이 출처 URL 도메인에 포함되는지 (또는 반대)
+    # 예: email=sales@nuribom.com, source=nuribom.com → 통과
+    # 예: email=ad@lonstech.co.kr, source=sncall.co.kr → 차단
+    email_base = email_domain.replace("co.kr", "").replace("com", "").replace("net", "").replace("kr", "").strip(".")
+    source_base = source_host.replace("co.kr", "").replace("com", "").replace("net", "").replace("kr", "").strip(".")
+
+    if email_domain in source_host or source_host in email_domain:
+        return False  # 매칭 → 통과
+    if email_base and source_base and (email_base in source_base or source_base in email_base):
+        return False  # 부분 매칭 → 통과
+
+    return True  # 무관한 도메인 → 노이즈
 
 
 # ── 페이지 fetch ──────────────────────────────────────────
@@ -174,8 +263,11 @@ def find_contact_pages(soup: BeautifulSoup, base_url: str) -> List[str]:
 
 
 # ── URL에서 이메일 스크래핑 ────────────────────────────────
-def scrape_emails_from_url(url: str) -> List[EmailHit]:
-    """URL 본문 + 하위 연락처 페이지에서 이메일 추출."""
+def scrape_emails_from_url(url: str, apply_cross_domain_filter: bool = True) -> List[EmailHit]:
+    """URL 본문 + 하위 연락처 페이지에서 이메일 추출.
+    
+    apply_cross_domain_filter: True이면 출처 URL과 무관한 제3자 이메일을 필터링.
+    """
     hits: List[EmailHit] = []
     try:
         html = fetch_html(url)
@@ -185,6 +277,9 @@ def scrape_emails_from_url(url: str) -> List[EmailHit]:
 
     soup = BeautifulSoup(html, "lxml")
     for em in extract_emails_from_text(html):
+        if apply_cross_domain_filter and is_cross_domain_noise(em, url):
+            log.debug("cross-domain 필터링: %s (출처: %s)", em, url)
+            continue
         hits.append(EmailHit(email=em, source_url=url, method="homepage"))
 
     # 하위 연락처 페이지 탐색
@@ -195,6 +290,9 @@ def scrape_emails_from_url(url: str) -> List[EmailHit]:
         except Exception:
             continue
         for em in extract_emails_from_text(html2):
+            if apply_cross_domain_filter and is_cross_domain_noise(em, sub):
+                log.debug("cross-domain 필터링: %s (출처: %s)", em, sub)
+                continue
             hits.append(EmailHit(email=em, source_url=sub, method="homepage"))
 
     return hits
