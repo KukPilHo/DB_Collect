@@ -57,8 +57,8 @@ CATEGORY_건설 = "건설_물류_시설"
 CATEGORY_QUOTA = {
     CATEGORY_제조: 300,
     CATEGORY_IT: 120,
-    CATEGORY_서비스: 120,
-    CATEGORY_건설: 60,
+    CATEGORY_서비스: 520,  # 200건 추가 확보를 위해 기존 320 -> 520으로 대폭 상향
+    CATEGORY_건설: 260,
 }
 
 # ── 데이터셋 우선순위 (dedup 시 사용, 낮을수록 높은 우선순위) ──

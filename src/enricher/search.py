@@ -103,7 +103,7 @@ def duckduckgo_search(query: str, num: int = 5) -> List[dict]:
 INVALID_HOMEPAGES = {"http://", "http:// ", "https://", "http://www.", "", "nan"}
 
 # 회사당 최대 수집 이메일 수 (너무 많으면 노이즈만 늘어남)
-MAX_EMAILS_PER_COMPANY = 10
+MAX_EMAILS_PER_COMPANY = 15
 
 
 def search_emails_for_company(

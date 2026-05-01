@@ -411,7 +411,7 @@ Python 3.10+.
 본 enrichment 전 필수.
 
 - (1) categorize 후 제조 카테고리에서 50개 random sample 선정
-- (2) `python -m src.cli enrich --category 제조 --limit 50` 실행
+- (2) `python -m src.cli enrich --category 제조 --limit 20` 실행
 - (3) `python -m src.cli status`로 hit rate 측정 (collected / 50)
 - (4) hit rate에 따라 multiplier 조정 후 README 결정사항에 기록
   - 50% 이상이면 multiplier 1.5 유지

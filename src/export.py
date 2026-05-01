@@ -81,13 +81,19 @@ def run_export() -> str:
     merged_best = _merge_with_master(best_pick_df)
     merged_all = _merge_with_master(all_collected)
 
-    # 출력 컬럼 선택
+    # 출력 컬럼 선택 (조회시각을 P열에 배치)
     out_cols = [
         "회사명", "이메일", "이메일_출처_URL", "이메일_방법",
         "업종명_원본", "시도", "시군구", "도로명주소", "대표전화", "홈페이지",
-        "종업원수", "자본금", "카테고리", "출처_데이터셋ID"
+        "종업원수", "자본금", "카테고리", "출처_데이터셋ID", "조회시각"
     ]
     out_cols = [c for c in out_cols if c in merged_best.columns]
+
+    # 조회시각 기준으로 오름차순 정렬 (새로 수집된 데이터가 맨 밑으로 쌓이게 함)
+    if "조회시각" in merged_best.columns:
+        merged_best = merged_best.sort_values(by="조회시각", ascending=True)
+    if "조회시각" in merged_all.columns:
+        merged_all = merged_all.sort_values(by="조회시각", ascending=True)
 
     # 상세 시트 컬럼 (best_pick 점수 포함)
     detail_cols = out_cols.copy()
