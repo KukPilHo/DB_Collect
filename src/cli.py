@@ -101,6 +101,37 @@ def export():
     click.echo(f"엑셀 저장: {path}")
 
 
+@cli.command("enrich-excel")
+@click.option("--file", "file_path", required=True, type=click.Path(exists=True),
+              help="이메일을 수집할 회사 목록 엑셀 파일 (최소 '회사명' 컬럼 필요)")
+@click.option("--skip-existing", is_flag=True,
+              help="이미 수집된 회사를 결과에서 완전히 제외")
+@click.option("--force-recollect", is_flag=True,
+              help="이미 수집된 회사도 재수집")
+@click.option("--limit", type=int, default=0,
+              help="테스트용: 상위 N개 회사만 처리")
+def enrich_excel(file_path: str, skip_existing: bool, force_recollect: bool, limit: int):
+    """엑셀 파일의 회사 목록을 대상으로 이메일을 수집한다.
+
+    \b
+    사용 예시:
+      python -m src.cli enrich-excel --file 내회사목록.xlsx
+      python -m src.cli enrich-excel --file 내회사목록.xlsx --skip-existing
+      python -m src.cli enrich-excel --file 내회사목록.xlsx --limit 5
+    """
+    from src.pipeline.enrich_excel import run_enrich_excel
+    out_path = run_enrich_excel(
+        file_path=file_path,
+        skip_existing=skip_existing,
+        limit=limit,
+        force_recollect=force_recollect,
+    )
+    if out_path:
+        click.echo(f"\n📊 결과 파일: {out_path}")
+    else:
+        click.echo("\n⚠️  수집 결과가 없습니다.")
+
+
 @cli.command("all")
 @click.option("--multiplier", type=float, default=1.5)
 @click.option("--concurrency", type=int, default=ENRICHMENT_CONCURRENCY)
