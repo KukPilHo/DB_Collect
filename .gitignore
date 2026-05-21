@@ -6,11 +6,14 @@ raw/
 normalized/
 master.parquet
 candidates.parquet
-enrichment_state.sqlite
+enrichment_state.sqlite*
 output/
-
-# 기존 레거시
 input/
+
+# 사용자 엑셀/데이터 파일 차단
+*.xlsx
+*.xls
+*.csv
 
 # Python
 __pycache__/

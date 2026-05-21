@@ -236,3 +236,45 @@ def search_emails_for_company(
             break
 
     return [h for h in hits if h.is_valid()]
+
+def fast_search_single_email(company: str, homepage: str = "") -> EmailHit | None:
+    """최적화된 단일 이메일 탐색 로직 (찾는 즉시 조기 종료)"""
+    hp = str(homepage).strip() if homepage else ""
+    if hp and hp not in INVALID_HOMEPAGES and hp.startswith("http"):
+        try:
+            url_hits = scrape_emails_from_url(hp)
+            for h in url_hits:
+                if h.is_valid():
+                    h.method = "homepage_direct"
+                    return h
+        except Exception:
+            pass
+
+    queries = [f"{company} 이메일", f"{company} 공식 홈페이지"]
+    
+    for q in queries:
+        for it in naver_search(q, "webkr", 5):
+            url = it.get("link") or ""
+            snip = (it.get("title", "") + " " + it.get("description", ""))
+            if any(b in url for b in URL_BLOCKLIST): continue
+            for em in extract_emails_from_text(snip):
+                h = EmailHit(email=em, source_url=url, method="naver_webkr_snippet")
+                if h.is_valid(): return h
+
+        for it in google_cse(q, 5):
+            url = it.get("link") or ""
+            snip = (it.get("title", "") + " " + it.get("snippet", ""))
+            if any(b in url for b in URL_BLOCKLIST): continue
+            for em in extract_emails_from_text(snip):
+                h = EmailHit(email=em, source_url=url, method="google_cse_snippet")
+                if h.is_valid(): return h
+
+        for it in duckduckgo_search(q, 5):
+            url = it.get("link") or ""
+            snip = (it.get("title", "") + " " + it.get("snippet", ""))
+            if any(b in url for b in URL_BLOCKLIST): continue
+            for em in extract_emails_from_text(snip):
+                h = EmailHit(email=em, source_url=url, method="duckduckgo_snippet")
+                if h.is_valid(): return h
+                
+    return None

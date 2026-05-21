@@ -21,7 +21,7 @@ from tqdm import tqdm
 
 from src.config import OUTPUT_DIR, log
 from src.enricher.best_pick import select_best_picks
-from src.enricher.search import search_emails_for_company
+from src.enricher.search import search_emails_for_company, fast_search_single_email
 from src.enricher.state import (
     EnrichmentState,
     STATUS_COLLECTED,
@@ -419,6 +419,98 @@ def run_enrich_excel(
     if total_searched > 0:
         hit_rate = stats[STATUS_COLLECTED] / total_searched * 100
         log.info("    hit rate: %.1f%%", hit_rate)
+    log.info("    결과 파일: %s", out_path)
+    log.info("=" * 50)
+
+    return str(out_path)
+
+def run_enrich_excel_fast(file_path: str, limit: int = 0) -> str:
+    import concurrent.futures
+    import threading
+    
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
+
+    df, name_col, addr_col, hp_col = _parse_excel(path)
+    if limit > 0:
+        df = df.head(limit)
+
+    total = len(df)
+    log.info("최적화/단일 추출 모드 시작: %s (%d개 회사)", path.name, total)
+
+    out_rows = []
+    n_with_email = 0
+    save_counter = 0
+    lock = threading.Lock()
+    
+    stem = path.stem
+    out_path = OUTPUT_DIR / f"enriched_fast_{stem}_{date.today().isoformat()}.xlsx"
+
+    def _process_row(idx, row):
+        company = str(row.get(name_col, "")).strip()
+        homepage = str(row.get(hp_col, "")).strip() if hp_col else ""
+        base = row.to_dict()
+        base["_No"] = idx + 1
+        
+        if not company:
+            return {**base, "이메일": "", "이메일_출처_URL": "", "이메일_방법": "", "수집시각": "", "상태": "회사명 없음"}
+            
+        hit = fast_search_single_email(company, homepage)
+        
+        if hit:
+            return {
+                **base,
+                "이메일": hit.email,
+                "이메일_출처_URL": hit.source_url,
+                "이메일_방법": hit.method,
+                "수집시각": hit.found_at,
+                "상태": "수집 완료"
+            }
+        else:
+            return {
+                **base,
+                "이메일": "",
+                "이메일_출처_URL": "",
+                "이메일_방법": "",
+                "수집시각": datetime.now().isoformat(timespec="seconds"),
+                "상태": "이메일 미발견"
+            }
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_process_row, i, row): i for i, row in df.iterrows()}
+        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="병렬 수집(Fast)"):
+            try:
+                res = future.result()
+                with lock:
+                    out_rows.append(res)
+                    if res.get("이메일"):
+                        n_with_email += 1
+                    save_counter += 1
+                    if save_counter % 100 == 0:
+                        pd.DataFrame(out_rows).to_excel(out_path, index=False)
+            except Exception as e:
+                log.error(f"Task 처리 중 에러 발생: {e}")
+
+    result_df = pd.DataFrame(out_rows)
+    if "_No" in result_df.columns:
+        result_df = result_df.sort_values("_No")
+        
+    result_cols = ["이메일", "이메일_출처_URL", "이메일_방법", "수집시각", "상태"]
+    original_cols = [c for c in result_df.columns if c not in result_cols and c != "_No"]
+    ordered_cols = ["_No"] + original_cols + result_cols
+    ordered_cols = [c for c in ordered_cols if c in result_df.columns]
+    result_df = result_df[ordered_cols]
+    result_df = result_df.rename(columns={"_No": "No."})
+
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        result_df.to_excel(writer, sheet_name="수집결과", index=False)
+        _style_sheet(writer.book["수집결과"], result_df)
+
+    log.info("=" * 50)
+    log.info("  ✅ 최적화 모드 수집 완료!")
+    log.info("    전체 처리: %d건", total)
+    log.info("    이메일 발견: %d건", n_with_email)
     log.info("    결과 파일: %s", out_path)
     log.info("=" * 50)
 
