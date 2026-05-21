@@ -49,6 +49,8 @@ EMAIL_BLOCKLIST_DOMAINS = {
     "ablenews.co.kr", "theindigo.co.kr", "fpn119.co.kr", "newstown.co.kr",
     "cosinkorea.com", "techsuda.com", "zdnet.co.kr", "ruliweb.com",
     "op.gg", "blog.yeogie.com", "radiokorea.com", "surfshark.com", "surfsharkbiz.com", "surfsharkpress.com",
+    # 사용자 지정 차단 도메인
+    "bagelchat.ai", "cookiedeal.io", "aving.net",
 }
 
 
